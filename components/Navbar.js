@@ -3,7 +3,6 @@ import { useRouter } from 'next/router';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useTheme } from '../context/ThemeContext';
 import {
   HiMenu,
   HiSearch,
@@ -19,11 +18,26 @@ import {
 export default function Navbar({ onMenuClick }) {
   const router = useRouter();
   const { data: session } = useSession();
-  const { isDark, toggleTheme } = useTheme();
+  const [isDark, setIsDark] = useState(false);
   const [query, setQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sanly-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const dark = saved ? saved === 'dark' : prefersDark;
+    setIsDark(dark);
+    document.documentElement.classList.toggle('dark', dark);
+  }, []);
+
+  const toggleTheme = () => {
+    const newDark = !isDark;
+    setIsDark(newDark);
+    document.documentElement.classList.toggle('dark', newDark);
+    localStorage.setItem('sanly-theme', newDark ? 'dark' : 'light');
+  };
 
   useEffect(() => {
     if (router.query.q) setQuery(router.query.q);
@@ -151,4 +165,3 @@ export default function Navbar({ onMenuClick }) {
     </nav>
   );
 }
-
