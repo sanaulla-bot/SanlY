@@ -151,3 +151,4 @@ export default function Navbar({ onMenuClick }) {
     </nav>
   );
 }
+
