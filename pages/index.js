@@ -1,260 +1,132 @@
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Head from 'next/head';
-import Image from 'next/image';
-import Link from 'next/link';
-import { useSession, signIn } from 'next-auth/react';
-import Layout from '../../components/Layout';
-import VideoCard from '../../components/VideoCard';
-import { HorizontalVideoSkeleton } from '../../components/Skeleton';
-import {
-  fetchVideoById,
-  fetchRelatedVideos,
-  fetchChannelById,
-  formatViewCount,
-  formatSubCount,
-  checkSubscription,
-  subscribeChannel,
-  unsubscribeChannel,
-  getSubscriptionId,
-} from '../../lib/youtube';
-import { formatDistanceToNow } from '../../lib/timeUtils';
-import { HiThumbUp, HiShare, HiDotsHorizontal, HiChevronDown, HiChevronUp } from 'react-icons/hi';
+import Layout from '../components/Layout';
+import VideoCard from '../components/VideoCard';
+import { VideoCardSkeletonGrid } from '../components/Skeleton';
+import { fetchHomeVideos, fetchVideoCategories } from '../lib/youtube';
 
-export default function WatchPage() {
-  const router = useRouter();
-  const { v: videoId } = router.query;
-  const { data: session } = useSession();
+const ALWAYS_CHIPS = [
+  { id: '', title: 'All' },
+  { id: '10', title: 'Music' },
+  { id: '20', title: 'Gaming' },
+  { id: '28', title: 'Science & Tech' },
+  { id: '27', title: 'Education' },
+  { id: '22', title: 'People & Blogs' },
+  { id: '24', title: 'Entertainment' },
+  { id: '17', title: 'Sports' },
+  { id: '25', title: 'News & Politics' },
+  { id: '26', title: 'How-to & Style' },
+  { id: '23', title: 'Comedy' },
+];
 
-  const [video, setVideo] = useState(null);
-  const [channel, setChannel] = useState(null);
-  const [related, setRelated] = useState([]);
+export default function Home() {
+  const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [subscriptionId, setSubscriptionId] = useState(null);
-  const [subLoading, setSubLoading] = useState(false);
-  const [showDesc, setShowDesc] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [activeChip, setActiveChip] = useState('');
+  const [nextPageToken, setNextPageToken] = useState('');
+  const [hasMore, setHasMore] = useState(true);
+  const observerRef = useRef(null);
+  const loadMoreRef = useRef(null);
 
-  useEffect(() => {
-    if (!videoId) return;
-    setLoading(true);
-    setVideo(null);
-    setRelated([]);
-
-    async function load() {
-      try {
-        const [videoData, relatedData] = await Promise.all([
-          fetchVideoById(videoId),
-          fetchRelatedVideos(videoId),
-        ]);
-        setVideo(videoData);
-        setRelated(relatedData);
-
-        if (videoData?.snippet?.channelId) {
-          const channelData = await fetchChannelById(videoData.snippet.channelId);
-          setChannel(channelData);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [videoId]);
-
-  // Check subscription status
-  useEffect(() => {
-    if (!session?.accessToken || !channel?.id) return;
-    async function checkSub() {
-      const subId = await getSubscriptionId(session.accessToken, channel.id);
-      setIsSubscribed(!!subId);
-      setSubscriptionId(subId);
-    }
-    checkSub();
-  }, [session, channel]);
-
-  const handleSubscribe = async () => {
-    if (!session) {
-      signIn('google');
-      return;
-    }
-    setSubLoading(true);
+  const loadVideos = useCallback(async (categoryId, pageToken = '', append = false) => {
     try {
-      if (isSubscribed && subscriptionId) {
-        await unsubscribeChannel(session.accessToken, subscriptionId);
-        setIsSubscribed(false);
-        setSubscriptionId(null);
-      } else {
-        const result = await subscribeChannel(session.accessToken, channel.id);
-        setIsSubscribed(true);
-        setSubscriptionId(result.id);
-      }
+      if (!append) setLoading(true);
+      else setLoadingMore(true);
+
+      const data = await fetchHomeVideos(categoryId, pageToken);
+      const items = data.items || [];
+
+      setVideos((prev) => (append ? [...prev, ...items] : items));
+      setNextPageToken(data.nextPageToken || '');
+      setHasMore(!!data.nextPageToken);
     } catch (err) {
-      console.error('Subscribe error:', err);
+      console.error('Failed to fetch videos:', err);
     } finally {
-      setSubLoading(false);
+      setLoading(false);
+      setLoadingMore(false);
     }
+  }, []);
+
+  useEffect(() => {
+    loadVideos(activeChip);
+  }, [activeChip, loadVideos]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+          loadVideos(activeChip, nextPageToken, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, loadingMore, loading, nextPageToken, activeChip, loadVideos]);
+
+  const handleChipClick = (chipId) => {
+    if (chipId === activeChip) return;
+    setActiveChip(chipId);
+    setVideos([]);
+    setNextPageToken('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
-  if (!videoId) return null;
-
-  const snippet = video?.snippet || {};
-  const stats = video?.statistics || {};
-  const channelSnippet = channel?.snippet || {};
-  const channelStats = channel?.statistics || {};
 
   return (
     <>
       <Head>
-        <title>{snippet.title ? `${snippet.title} - SanlY` : 'SanlY'}</title>
+        <title>SanlY - Home</title>
       </Head>
-      <Layout hideSidebar={false}>
-        <div className="flex flex-col lg:flex-row gap-6 max-w-screen-2xl mx-auto">
-          {/* Main: Video + Info */}
-          <div className="flex-1 min-w-0">
-            {/* Video Player */}
-            <div className="video-player-wrapper">
-              {videoId && (
-                <iframe
-                  src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`}
-                  title={snippet.title}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                />
-              )}
-            </div>
+      <Layout>
+        {/* Filter chips */}
+        <div
+          className="sticky top-14 z-50 -mx-6 px-6 py-2 flex gap-3 overflow-x-auto scrollbar-none"
+          style={{ background: 'var(--bg-primary)' }}
+        >
+          <style>{`.scrollbar-none::-webkit-scrollbar{display:none}`}</style>
+          {ALWAYS_CHIPS.map((chip) => (
+            <button
+              key={chip.id}
+              onClick={() => handleChipClick(chip.id)}
+              className={`chip flex-shrink-0 ${
+                chip.id === activeChip ? 'chip-active' : 'chip-inactive'
+              }`}
+            >
+              {chip.title}
+            </button>
+          ))}
+        </div>
 
-            {/* Video Info */}
-            <div className="mt-3">
-              {loading ? (
-                <div>
-                  <div className="skeleton h-6 w-4/5 rounded mb-3" />
-                  <div className="skeleton h-4 w-1/2 rounded" />
-                </div>
-              ) : (
-                <>
-                  <h1
-                    className="text-lg font-semibold leading-snug"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    {snippet.title}
-                  </h1>
-
-                  {/* Channel row + actions */}
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3">
-                    {/* Channel info */}
-                    <div className="flex items-center gap-3">
-                      <Link href={`/channel/${snippet.channelId}`}>
-                        {channelSnippet.thumbnails?.default?.url ? (
-                          <Image
-                            src={channelSnippet.thumbnails.default.url}
-                            alt={snippet.channelTitle}
-                            width={40}
-                            height={40}
-                            className="rounded-full"
-                          />
-                        ) : (
-                          <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                            style={{ background: '#5b21b6' }}
-                          >
-                            {snippet.channelTitle?.[0] || 'S'}
-                          </div>
-                        )}
-                      </Link>
-                      <div>
-                        <Link
-                          href={`/channel/${snippet.channelId}`}
-                          className="text-sm font-medium hover:underline"
-                          style={{ color: 'var(--text-primary)' }}
-                        >
-                          {snippet.channelTitle}
-                        </Link>
-                        {channelStats.subscriberCount && (
-                          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            {formatSubCount(channelStats.subscriberCount)} subscribers
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={handleSubscribe}
-                        disabled={subLoading}
-                        className={`subscribe-btn ${isSubscribed ? 'subscribed' : ''} ml-2`}
-                      >
-                        {subLoading ? '...' : isSubscribed ? 'Subscribed' : 'Subscribe'}
-                      </button>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="flex items-center gap-2 px-4 h-9 rounded-full text-sm font-medium"
-                        style={{ background: 'var(--hover-bg)', color: 'var(--text-primary)' }}
-                      >
-                        <HiThumbUp size={18} />
-                        <span>{stats.likeCount ? formatViewCount(stats.likeCount).replace(' views','') : 'Like'}</span>
-                      </button>
-                      <button
-                        className="flex items-center gap-2 px-4 h-9 rounded-full text-sm font-medium"
-                        style={{ background: 'var(--hover-bg)', color: 'var(--text-primary)' }}
-                      >
-                        <HiShare size={18} />
-                        Share
-                      </button>
-                      <button
-                        className="icon-btn"
-                        style={{ background: 'var(--hover-bg)' }}
-                      >
-                        <HiDotsHorizontal size={18} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  <div
-                    className="mt-3 rounded-xl p-3 cursor-pointer"
-                    style={{ background: 'var(--hover-bg)' }}
-                    onClick={() => setShowDesc(!showDesc)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-3 text-sm font-medium">
-                        <span>{formatViewCount(stats.viewCount)}</span>
-                        <span>{formatDistanceToNow(snippet.publishedAt)}</span>
-                      </div>
-                      {showDesc ? <HiChevronUp size={18} /> : <HiChevronDown size={18} />}
-                    </div>
-                    {showDesc && (
-                      <p
-                        className="text-sm whitespace-pre-line mt-2"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        {snippet.description}
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Sidebar: Related videos */}
-          <div className="w-full lg:w-96 flex-shrink-0">
-            <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-              Up next
-            </h3>
-            {loading ? (
-              <HorizontalVideoSkeleton count={8} />
-            ) : (
-              <div className="flex flex-col gap-3">
-                {related.map((vid) => {
-                  const id = typeof vid.id === 'object' ? vid.id.videoId : vid.id;
-                  return <VideoCard key={id} video={vid} horizontal />;
-                })}
+        {/* Video grid */}
+        <div className="mt-4">
+          {loading ? (
+            <VideoCardSkeletonGrid count={12} />
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-4 gap-y-8">
+                {videos.map((video) => (
+                  <VideoCard key={video.id} video={video} />
+                ))}
               </div>
-            )}
-          </div>
+
+              {/* Load more trigger */}
+              <div ref={loadMoreRef} className="h-16 flex items-center justify-center">
+                {loadingMore && (
+                  <div className="spinner" />
+                )}
+              </div>
+
+              {videos.length === 0 && !loading && (
+                <div className="flex flex-col items-center justify-center py-20" style={{ color: 'var(--text-secondary)' }}>
+                  <p className="text-lg">No videos found</p>
+                  <p className="text-sm mt-2">Try a different category</p>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </Layout>
     </>
