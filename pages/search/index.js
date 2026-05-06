@@ -1,261 +1,209 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useSession, signIn } from 'next-auth/react';
 import Layout from '../../components/Layout';
+import { VideoCardSkeletonGrid } from '../../components/Skeleton';
 import VideoCard from '../../components/VideoCard';
-import { HorizontalVideoSkeleton } from '../../components/Skeleton';
-import {
-  fetchVideoById,
-  fetchRelatedVideos,
-  fetchChannelById,
-  formatViewCount,
-  formatSubCount,
-  checkSubscription,
-  subscribeChannel,
-  unsubscribeChannel,
-  getSubscriptionId,
-} from '../../lib/youtube';
+import { searchVideos, formatViewCount } from '../../lib/youtube';
 import { formatDistanceToNow } from '../../lib/timeUtils';
-import { HiThumbUp, HiShare, HiDotsHorizontal, HiChevronDown, HiChevronUp } from 'react-icons/hi';
+import { HiFilter } from 'react-icons/hi';
 
-export default function WatchPage() {
+const FILTERS = ['All', 'Video', 'Channel', 'Playlist', 'Short'];
+
+export default function SearchPage() {
   const router = useRouter();
-  const { v: videoId } = router.query;
-  const { data: session } = useSession();
+  const { q } = router.query;
 
-  const [video, setVideo] = useState(null);
-  const [channel, setChannel] = useState(null);
-  const [related, setRelated] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [subscriptionId, setSubscriptionId] = useState(null);
-  const [subLoading, setSubLoading] = useState(false);
-  const [showDesc, setShowDesc] = useState(false);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextPageToken, setNextPageToken] = useState('');
+  const [hasMore, setHasMore] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('All');
+  const loadMoreRef = useRef(null);
+  const observerRef = useRef(null);
 
-  useEffect(() => {
-    if (!videoId) return;
-    setLoading(true);
-    setVideo(null);
-    setRelated([]);
-
-    async function load() {
-      try {
-        const [videoData, relatedData] = await Promise.all([
-          fetchVideoById(videoId),
-          fetchRelatedVideos(videoId),
-        ]);
-        setVideo(videoData);
-        setRelated(relatedData);
-
-        if (videoData?.snippet?.channelId) {
-          const channelData = await fetchChannelById(videoData.snippet.channelId);
-          setChannel(channelData);
-        }
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [videoId]);
-
-  // Check subscription status
-  useEffect(() => {
-    if (!session?.accessToken || !channel?.id) return;
-    async function checkSub() {
-      const subId = await getSubscriptionId(session.accessToken, channel.id);
-      setIsSubscribed(!!subId);
-      setSubscriptionId(subId);
-    }
-    checkSub();
-  }, [session, channel]);
-
-  const handleSubscribe = async () => {
-    if (!session) {
-      signIn('google');
-      return;
-    }
-    setSubLoading(true);
+  const doSearch = useCallback(async (query, pageToken = '', append = false) => {
+    if (!query) return;
     try {
-      if (isSubscribed && subscriptionId) {
-        await unsubscribeChannel(session.accessToken, subscriptionId);
-        setIsSubscribed(false);
-        setSubscriptionId(null);
-      } else {
-        const result = await subscribeChannel(session.accessToken, channel.id);
-        setIsSubscribed(true);
-        setSubscriptionId(result.id);
-      }
+      if (!append) setLoading(true);
+      else setLoadingMore(true);
+
+      const data = await searchVideos(query, pageToken);
+      setResults((prev) => (append ? [...prev, ...data.items] : data.items || []));
+      setNextPageToken(data.nextPageToken || '');
+      setHasMore(!!data.nextPageToken);
     } catch (err) {
-      console.error('Subscribe error:', err);
+      console.error(err);
     } finally {
-      setSubLoading(false);
+      setLoading(false);
+      setLoadingMore(false);
     }
-  };
+  }, []);
 
-  if (!videoId) return null;
+  useEffect(() => {
+    if (q) {
+      setResults([]);
+      setNextPageToken('');
+      doSearch(q);
+    }
+  }, [q, doSearch]);
 
-  const snippet = video?.snippet || {};
-  const stats = video?.statistics || {};
-  const channelSnippet = channel?.snippet || {};
-  const channelStats = channel?.statistics || {};
+  // Infinite scroll
+  useEffect(() => {
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore && !loading && q) {
+          doSearch(q, nextPageToken, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (loadMoreRef.current) observerRef.current.observe(loadMoreRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [hasMore, loadingMore, loading, nextPageToken, q, doSearch]);
 
   return (
     <>
       <Head>
-        <title>{snippet.title ? `${snippet.title} - SanlY` : 'SanlY'}</title>
+        <title>{q ? `${q} - SanlY Search` : 'Search - SanlY'}</title>
       </Head>
-      <Layout hideSidebar={false}>
-        <div className="flex flex-col lg:flex-row gap-6 max-w-screen-2xl mx-auto">
-          {/* Main: Video + Info */}
-          <div className="flex-1 min-w-0">
-            {/* Video Player */}
-            <div className="video-player-wrapper">
-              {videoId && (
-                <iframe
-                  src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`}
-                  title={snippet.title}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                  style={{ width: '100%', height: '100%', border: 'none' }}
-                />
-              )}
-            </div>
+      <Layout>
+        {/* Filter row */}
+        <div className="flex items-center gap-3 mb-6 overflow-x-auto scrollbar-none pb-2">
+          <style>{`.scrollbar-none::-webkit-scrollbar{display:none}`}</style>
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              onClick={() => setActiveFilter(f)}
+              className={`chip flex-shrink-0 ${activeFilter === f ? 'chip-active' : 'chip-inactive'}`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
 
-            {/* Video Info */}
-            <div className="mt-3">
-              {loading ? (
-                <div>
-                  <div className="skeleton h-6 w-4/5 rounded mb-3" />
-                  <div className="skeleton h-4 w-1/2 rounded" />
-                </div>
-              ) : (
-                <>
-                  <h1
-                    className="text-lg font-semibold leading-snug"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    {snippet.title}
-                  </h1>
+        {loading ? (
+          <VideoCardSkeletonGrid count={8} />
+        ) : (
+          <div className="flex flex-col gap-4 max-w-3xl">
+            {results.map((item) => {
+              const id = typeof item.id === 'object' ? item.id.videoId : item.id;
+              const snippet = item.snippet;
 
-                  {/* Channel row + actions */}
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3">
-                    {/* Channel info */}
-                    <div className="flex items-center gap-3">
-                      <Link href={`/channel/${snippet.channelId}`}>
-                        {channelSnippet.thumbnails?.default?.url ? (
-                          <Image
-                            src={channelSnippet.thumbnails.default.url}
-                            alt={snippet.channelTitle}
-                            width={40}
-                            height={40}
-                            className="rounded-full"
-                          />
-                        ) : (
-                          <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                            style={{ background: '#5b21b6' }}
-                          >
-                            {snippet.channelTitle?.[0] || 'S'}
-                          </div>
-                        )}
-                      </Link>
-                      <div>
-                        <Link
-                          href={`/channel/${snippet.channelId}`}
-                          className="text-sm font-medium hover:underline"
-                          style={{ color: 'var(--text-primary)' }}
-                        >
-                          {snippet.channelTitle}
-                        </Link>
-                        {channelStats.subscriberCount && (
-                          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            {formatSubCount(channelStats.subscriberCount)} subscribers
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={handleSubscribe}
-                        disabled={subLoading}
-                        className={`subscribe-btn ${isSubscribed ? 'subscribed' : ''} ml-2`}
-                      >
-                        {subLoading ? '...' : isSubscribed ? 'Subscribed' : 'Subscribe'}
-                      </button>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="flex items-center gap-2 px-4 h-9 rounded-full text-sm font-medium"
-                        style={{ background: 'var(--hover-bg)', color: 'var(--text-primary)' }}
-                      >
-                        <HiThumbUp size={18} />
-                        <span>{stats.likeCount ? formatViewCount(stats.likeCount).replace(' views','') : 'Like'}</span>
-                      </button>
-                      <button
-                        className="flex items-center gap-2 px-4 h-9 rounded-full text-sm font-medium"
-                        style={{ background: 'var(--hover-bg)', color: 'var(--text-primary)' }}
-                      >
-                        <HiShare size={18} />
-                        Share
-                      </button>
-                      <button
-                        className="icon-btn"
-                        style={{ background: 'var(--hover-bg)' }}
-                      >
-                        <HiDotsHorizontal size={18} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  <div
-                    className="mt-3 rounded-xl p-3 cursor-pointer"
+              // Channel result
+              if (typeof item.id === 'object' && item.id.kind === 'youtube#channel') {
+                return (
+                  <Link
+                    key={item.id.channelId}
+                    href={`/channel/${item.id.channelId}`}
+                    className="flex items-center gap-4 p-3 rounded-xl hover:bg-opacity-50"
                     style={{ background: 'var(--hover-bg)' }}
-                    onClick={() => setShowDesc(!showDesc)}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-3 text-sm font-medium">
-                        <span>{formatViewCount(stats.viewCount)}</span>
-                        <span>{formatDistanceToNow(snippet.publishedAt)}</span>
+                    {snippet.thumbnails?.medium?.url ? (
+                      <Image
+                        src={snippet.thumbnails.medium.url}
+                        alt={snippet.title}
+                        width={80}
+                        height={80}
+                        className="rounded-full"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-full bg-purple-700 flex items-center justify-center text-white text-2xl font-bold">
+                        {snippet.title?.[0]}
                       </div>
-                      {showDesc ? <HiChevronUp size={18} /> : <HiChevronDown size={18} />}
-                    </div>
-                    {showDesc && (
-                      <p
-                        className="text-sm whitespace-pre-line mt-2"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        {snippet.description}
-                      </p>
                     )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+                    <div>
+                      <p className="font-medium">{snippet.title}</p>
+                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        @{snippet.customUrl || snippet.title?.toLowerCase().replace(/\s+/g, '')}
+                      </p>
+                      <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                        {snippet.description?.slice(0, 80)}...
+                      </p>
+                    </div>
+                  </Link>
+                );
+              }
 
-          {/* Sidebar: Related videos */}
-          <div className="w-full lg:w-96 flex-shrink-0">
-            <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-              Up next
-            </h3>
-            {loading ? (
-              <HorizontalVideoSkeleton count={8} />
-            ) : (
-              <div className="flex flex-col gap-3">
-                {related.map((vid) => {
-                  const id = typeof vid.id === 'object' ? vid.id.videoId : vid.id;
-                  return <VideoCard key={id} video={vid} horizontal />;
-                })}
+              // Video result (horizontal layout for search)
+              return (
+                <Link
+                  key={id}
+                  href={`/watch?v=${id}`}
+                  className="flex gap-4 group"
+                >
+                  <div
+                    className="thumbnail-wrapper flex-shrink-0"
+                    style={{ width: 240, borderRadius: 12 }}
+                  >
+                    <img
+                      src={
+                        snippet.thumbnails?.medium?.url ||
+                        `https://i.ytimg.com/vi/${id}/mqdefault.jpg`
+                      }
+                      alt={snippet.title}
+                      className="thumbnail-img"
+                      style={{ width: 240, height: 135, objectFit: 'cover', borderRadius: 12 }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <p
+                      className="text-base font-medium line-clamp-2"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      {snippet.title}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                      {formatDistanceToNow(snippet.publishedAt)}
+                    </p>
+                    <Link
+                      href={`/channel/${snippet.channelId}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-2 mt-2"
+                    >
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                        style={{ background: '#5b21b6' }}
+                      >
+                        {snippet.channelTitle?.[0]}
+                      </div>
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        {snippet.channelTitle}
+                      </span>
+                    </Link>
+                    <p
+                      className="text-sm mt-2 line-clamp-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {snippet.description}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+
+            {/* Load more */}
+            <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
+              {loadingMore && <div className="spinner" />}
+            </div>
+
+            {results.length === 0 && !loading && q && (
+              <div
+                className="text-center py-20"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <p className="text-xl mb-2">No results for "{q}"</p>
+                <p className="text-sm">
+                  Try different keywords or check spelling
+                </p>
               </div>
             )}
           </div>
-        </div>
+        )}
       </Layout>
     </>
   );
