@@ -1,3 +1,4 @@
+import { useTheme } from '../context/ThemeContext';
 import { createContext, useContext, useEffect, useState } from 'react';
 
 const ThemeContext = createContext({});
