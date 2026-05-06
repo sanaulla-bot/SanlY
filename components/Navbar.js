@@ -24,14 +24,11 @@ export default function Navbar({ onMenuClick }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const dropdownRef = useRef(null);
-  const searchRef = useRef(null);
 
-  // Prefill search query from URL
   useEffect(() => {
     if (router.query.q) setQuery(router.query.q);
   }, [router.query.q]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -52,7 +49,6 @@ export default function Navbar({ onMenuClick }) {
 
   return (
     <nav className="navbar">
-      {/* Left: Menu + Logo */}
       <div className="flex items-center gap-1 flex-shrink-0">
         <button className="icon-btn" onClick={onMenuClick} aria-label="Menu">
           <HiMenu size={22} />
@@ -67,16 +63,13 @@ export default function Navbar({ onMenuClick }) {
               e.target.nextSibling.style.display = 'block';
             }}
           />
-          <span
-            style={{ display: 'none', fontWeight: 700, fontSize: 20, letterSpacing: '-0.5px' }}
-          >
+          <span style={{ display: 'none', fontWeight: 700, fontSize: 20 }}>
             <span style={{ color: '#5b21b6' }}>Sanl</span>
             <span style={{ color: '#1e3a5f' }}>Y</span>
           </span>
         </Link>
       </div>
 
-      {/* Center: Search bar (desktop) */}
       <div className="hidden md:flex flex-1 justify-center px-4">
         <form onSubmit={handleSearch} className="search-bar">
           <input
@@ -85,55 +78,31 @@ export default function Navbar({ onMenuClick }) {
             placeholder="Search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search"
           />
-          <button type="submit" className="search-btn" aria-label="Search">
+          <button type="submit" className="search-btn">
             <HiSearch size={20} />
           </button>
         </form>
-        <button className="icon-btn ml-2 tooltip" data-tip="Search with your voice">
+        <button className="icon-btn ml-2">
           <HiMicrophone size={20} />
         </button>
       </div>
 
-      {/* Right: Actions */}
       <div className="flex items-center gap-1 ml-auto">
-        {/* Mobile search toggle */}
-        <button
-          className="icon-btn md:hidden"
-          onClick={() => setShowSearch(!showSearch)}
-          aria-label="Search"
-        >
+        <button className="icon-btn md:hidden" onClick={() => setShowSearch(!showSearch)}>
           <HiSearch size={22} />
         </button>
-
-        {/* Theme toggle */}
-        <button className="icon-btn tooltip" data-tip={isDark ? 'Light mode' : 'Dark mode'} onClick={toggleTheme}>
+        <button className="icon-btn" onClick={toggleTheme}>
           {isDark ? <HiSun size={22} /> : <HiMoon size={22} />}
         </button>
-
         {session ? (
           <>
-            <button className="icon-btn tooltip" data-tip="Create">
-              <HiVideoCamera size={22} />
-            </button>
-            <button className="icon-btn tooltip" data-tip="Notifications">
-              <HiBell size={22} />
-            </button>
-            {/* Avatar with dropdown */}
+            <button className="icon-btn"><HiVideoCamera size={22} /></button>
+            <button className="icon-btn"><HiBell size={22} /></button>
             <div className="relative" ref={dropdownRef}>
-              <button
-                className="flex items-center"
-                onClick={() => setShowDropdown(!showDropdown)}
-              >
+              <button className="flex items-center" onClick={() => setShowDropdown(!showDropdown)}>
                 {session.user.image ? (
-                  <Image
-                    src={session.user.image}
-                    alt={session.user.name}
-                    width={32}
-                    height={32}
-                    className="avatar cursor-pointer"
-                  />
+                  <Image src={session.user.image} alt={session.user.name} width={32} height={32} className="avatar cursor-pointer" />
                 ) : (
                   <div className="avatar flex items-center justify-center bg-purple-700 text-white font-bold">
                     {session.user.name?.[0]}
@@ -155,10 +124,7 @@ export default function Navbar({ onMenuClick }) {
                     {isDark ? <HiSun size={18} /> : <HiMoon size={18} />}
                     {isDark ? 'Light mode' : 'Dark mode'}
                   </button>
-                  <button
-                    className="dropdown-item w-full"
-                    onClick={() => signOut()}
-                  >
+                  <button className="dropdown-item w-full" onClick={() => signOut()}>
                     <HiLogout size={18} />
                     Sign out
                   </button>
@@ -167,35 +133,18 @@ export default function Navbar({ onMenuClick }) {
             </div>
           </>
         ) : (
-          <button
-            onClick={() => signIn('google')}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium"
-            style={{
-              borderColor: '#3ea6ff',
-              color: '#3ea6ff',
-            }}
-          >
+          <button onClick={() => signIn('google')} className="flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium" style={{ borderColor: '#3ea6ff', color: '#3ea6ff' }}>
             <HiUser size={18} />
             <span className="hidden sm:inline">Sign in</span>
           </button>
         )}
       </div>
 
-      {/* Mobile search bar */}
       {showSearch && (
         <div className="absolute top-full left-0 right-0 p-3 md:hidden" style={{ background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
           <form onSubmit={handleSearch} className="search-bar w-full max-w-full">
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              autoFocus
-            />
-            <button type="submit" className="search-btn">
-              <HiSearch size={20} />
-            </button>
+            <input type="text" className="search-input" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
+            <button type="submit" className="search-btn"><HiSearch size={20} /></button>
           </form>
         </div>
       )}
